@@ -235,12 +235,20 @@ def cmd_predict(args: argparse.Namespace) -> int:
     p_calib = model.predict_proba(fm_calib.X)
 
     calibrator, cal_report = fit_calibrator(args.calibration, p_calib, fm_calib.y)
+
     # Venn-Abers supplies ci_low/ci_high: a probability interval that is
     # actually informative for a binary outcome. Split-conformal regression on
     # |y - p| is also fitted, but its useful output here is the LABEL SET, not
     # an interval -- on binary labels its interval degenerates to [0, 1].
-    venn_abers = VennAbersPredictor().fit(p_calib, fm_calib.y)
-    conformal = ConformalPredictor(alpha=args.alpha).fit(p_calib, fm_calib.y)
+    #
+    # Fitted on the CALIBRATED scores, not the raw ones. Fitting on raw scores
+    # while reporting a temperature-scaled calibrated_p puts the point estimate
+    # and its interval on two different scales, and the output then shows rows
+    # like calibrated_p=0.446 with ci=[0.512, 0.537] -- a point estimate
+    # outside its own interval. Same scale in, same scale out.
+    p_calib_cal = calibrator.transform(p_calib)
+    venn_abers = VennAbersPredictor().fit(p_calib_cal, fm_calib.y)
+    conformal = ConformalPredictor(alpha=args.alpha).fit(p_calib_cal, fm_calib.y)
     threshold = choose_threshold(fm_calib.y, p_calib)
 
     # --- query pairs: the cross product of variants x compounds ----------
@@ -267,8 +275,19 @@ def cmd_predict(args: argparse.Namespace) -> int:
     )
 
     p_raw = model.predict_proba(fm_query.X)
-    p_cal = calibrator.transform(p_raw)
-    ci_low, ci_high = venn_abers.interval(p_raw)
+    # Two-stage calibration. The chosen calibrator (temperature by default) is
+    # a monotone pre-map; Venn-Abers then produces BOTH the reported point
+    # estimate and its interval.
+    #
+    # Why VA owns the point estimate: an interval is only meaningful for the
+    # estimator that produced it. Reporting a temperature-scaled calibrated_p
+    # beside a Venn-Abers interval puts two different estimators in one row,
+    # and they disagree -- 12 of 15 rows came out with the point estimate
+    # outside its own interval before this was fixed. VA's point prediction is
+    # the midpoint of its interval, so coherence holds by construction.
+    p_pre = calibrator.transform(p_raw)
+    ci_low, ci_high = venn_abers.interval(p_pre)
+    p_cal = venn_abers.point(p_pre)
     label_sets = [
         "/".join(str(v) for v in ls) if ls else "(none)"
         for ls in conformal.label_set(p_cal)

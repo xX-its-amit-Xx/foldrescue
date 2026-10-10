@@ -527,6 +527,41 @@ def test_cli_predict_writes_the_specified_columns(tmp_path):
     assert (frame["ci_low"] <= frame["ci_high"]).all()
 
 
+def test_cli_point_estimate_lies_inside_its_own_interval(tmp_path):
+    """Regression: calibrated_p must never fall outside [ci_low, ci_high].
+
+    An earlier version fitted Venn-Abers on the RAW scores while reporting a
+    temperature-scaled calibrated_p. Those are two different estimators and
+    they disagree, so 12 of 15 output rows showed a point estimate outside its
+    own interval -- e.g. calibrated_p=0.446 with ci=[0.512, 0.537]. Formally
+    each number was defensible; together they were nonsense to a reader.
+
+    Venn-Abers now produces both, with the chosen calibrator as a monotone
+    pre-map, so the point is the interval's midpoint by construction.
+    """
+    variants, compounds = _write_inputs(tmp_path)
+    out = tmp_path / "coherent.csv"
+    result = _run_cli(
+        ["predict", "--gene", "GLB1", "--variants", str(variants),
+         "--compounds", str(compounds), "--out", str(out), "--no-shap",
+         "--include-ood"]
+    )
+    assert result.returncode == 0, result.stderr
+    frame = pd.read_csv(out, comment="#")
+    assert len(frame) > 0
+
+    below = frame["calibrated_p"] < frame["ci_low"] - 1e-9
+    above = frame["calibrated_p"] > frame["ci_high"] + 1e-9
+    outside = int((below | above).sum())
+    assert outside == 0, (
+        f"{outside} of {len(frame)} rows have calibrated_p outside "
+        f"[ci_low, ci_high]; point estimate and interval have drifted onto "
+        f"different scales again."
+    )
+    assert (frame["ci_low"] <= frame["ci_high"]).all()
+    assert ((frame["ci_low"] >= 0) & (frame["ci_high"] <= 1)).all()
+
+
 def test_cli_refuses_to_rank_ood_pairs_by_default(tmp_path):
     """The deliberate friction: an extrapolation must not be silently ranked."""
     variants, compounds = _write_inputs(tmp_path)

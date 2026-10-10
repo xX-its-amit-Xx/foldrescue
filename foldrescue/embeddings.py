@@ -95,6 +95,14 @@ Backend = Literal["esm2", "chemberta", "hashed"]
 DEFAULT_ESM_MODEL = "facebook/esm2_t6_8M_UR50D"
 DEFAULT_CHEMBERTA_MODEL = "seyonec/ChemBERTa-zinc-base-v1"
 
+# Hidden widths of the default checkpoints. Hard-coded so a caller cannot
+# silently pair an esm2 backend with a surrogate-sized dim and get a width
+# error deep inside the fusion head instead of here.
+BACKEND_DIMS: dict[str, int] = {
+    "esm2": 320,        # facebook/esm2_t6_8M_UR50D
+    "chemberta": 768,   # seyonec/ChemBERTa-zinc-base-v1
+}
+
 
 @dataclass(frozen=True)
 class EmbeddingConfig:
@@ -444,8 +452,8 @@ def build_embedding_matrix(
     pairs: pd.DataFrame | None = None,
     protein_backend: Backend = "hashed",
     compound_backend: Backend = "hashed",
-    protein_dim: int = 320,
-    compound_dim: int = 384,
+    protein_dim: int | None = None,
+    compound_dim: int | None = None,
     cache_root: Path | str = ".foldrescue_cache/embeddings",
     sequences: dict[str, str] | None = None,
     window: int = 15,
@@ -461,6 +469,22 @@ def build_embedding_matrix(
     pair_table = cohort.pairs if pairs is None else pairs
     if rows is not None:
         pair_table = pair_table.iloc[np.asarray(rows, dtype=int)]
+
+    # Widths follow the backend unless the caller pins them. ChemBERTa is 768
+    # wide and the surrogate default was 384, so inferring here turns what
+    # would be a confusing width error inside Tier 2 into no error at all.
+    if protein_dim is None:
+        protein_dim = BACKEND_DIMS.get(protein_backend, 320)
+    if compound_dim is None:
+        compound_dim = BACKEND_DIMS.get(compound_backend, 384)
+
+    # Real protein sequences ship with the package, so an esm2 run embeds a
+    # genuine variant window by default rather than the two-residue stand-in.
+    if sequences is None and protein_backend != "hashed":
+        from .data import load_sequences  # noqa: PLC0415
+
+        sequences = {g: r["sequence"] for g, r in load_sequences().items()}
+        _log.info("using %d packaged UniProt sequences for variant windows", len(sequences))
 
     prot_cfg = EmbeddingConfig(
         side="protein",

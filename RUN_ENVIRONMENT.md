@@ -12,14 +12,15 @@ Provenance for every executed notebook, figure and CSV committed under
 | CPU cores | 4 logical |
 | RAM | 15.7 GiB total |
 | GPU | **none** — all notebooks executed on CPU |
+| Network | unrestricted egress (see below) |
 | Executed | 2026-10-10 |
 | Executor | `nbclient`, `allow_errors=False` (any exception fails the run) |
 
 The spec suggested Kaggle (GPU) or Codespaces. This ran in a Claude Code cloud
 container instead. Nothing here needs a GPU: the two tree tiers are CPU-only by
-construction, and the Tier 2 fusion head is small enough that 80 epochs over
-~900 training pairs takes a few seconds on four cores. A GPU would change the
-runtimes below and nothing else.
+construction, ESM-2 t6 (7.5M parameters) and ChemBERTa (44.1M) are run once as
+frozen feature extractors with the results cached to disk, and the fusion head
+is small enough to train in seconds on four cores.
 
 ## Package versions
 
@@ -43,56 +44,62 @@ runtimes below and nothing else.
 
 ## Notebook runtimes
 
-Wall-clock, measured by the executor. Totals exclude notebook build time.
-
 | Notebook | Runtime |
 |---|---|
-| `cookbook/01_train_all_tiers.ipynb` | 67.8 s |
-| `cookbook/02_calibration_study.ipynb` | 6.3 s |
-| `cookbook/03_glb1_prospective.ipynb` | 5.1 s |
-| `cookbook/04_ablation.ipynb` | 25.6 s |
-| **total** | **104.8 s** |
+| `cookbook/01_train_all_tiers.ipynb` | 81.1 s |
+| `cookbook/02_calibration_study.ipynb` | 6.4 s |
+| `cookbook/03_glb1_prospective.ipynb` | 4.6 s |
+| `cookbook/04_ablation.ipynb` | 26.7 s |
+| **total** | **118.8 s** |
 
-`01` dominates because it is 3 tiers x 4 splits x 5 seeds = 60 model fits, 20 of
-them Tier 2.
+`01` dominates: 3 tiers x 4 splits x 5 seeds = 60 model fits, 20 of them
+Tier 2. Embedding extraction is cached and resumable, so only the first seed
+pays for it.
 
-## Two environment limitations that affect what the results mean
+## Encoders: real, and cached
 
-### 1. Tier 2 ran on SURROGATE embeddings, not ESM-2 / ChemBERTa
+Tier 2 uses the real pretrained checkpoints:
 
-This container's egress proxy allowlists PyPI but **not** `huggingface.co`:
+| Side | Checkpoint | Width | Parameters |
+|---|---|---|---|
+| Protein | `facebook/esm2_t6_8M_UR50D` | 320 | 7.5M |
+| Compound | `seyonec/ChemBERTa-zinc-base-v1` | 768 | 44.1M |
 
-```
-$ curl https://huggingface.co/facebook/esm2_t6_8M_UR50D/resolve/main/config.json
-curl: (56) CONNECT tunnel failed, response 403
-```
+Both are frozen. Extraction streams in batches and checkpoints to
+`.foldrescue_cache/embeddings/`, keyed by a fingerprint of the extraction
+configuration so a cache built with one model can never be resumed under
+another.
 
-So pretrained weights could not be fetched, and
-`foldrescue.embeddings` fell back to its documented surrogate backend —
-hashed k-mer counts for the protein window, a seeded random projection of
-Morgan bits for the compound. Both are deterministic and reproducible; neither
-is a language-model representation.
+An earlier run of this repository used a documented `hashed` surrogate backend,
+because the container's egress proxy did not allow `huggingface.co`. That
+restriction has since been lifted and the real encoders are now the default.
+The surrogate remains available for offline use and announces itself at WARNING
+level whenever active.
 
-**Consequence:** the Tier 2 numbers in `01_train_all_tiers.ipynb` exercise the
-cross-attention *architecture* and say **nothing** about ESM-2 or ChemBERTa.
-Tier 2 underperforming the tree tiers here is therefore only weak evidence
-about representation fusion in general — it is partly a statement about the
-surrogate. On a host where `huggingface.co` is reachable, pass
-`protein_backend="esm2", compound_backend="chemberta"` to
-`build_embedding_matrix` and the real encoders are used with no other change.
-The fallback is always announced at WARNING level and recorded in the
-provenance dict returned alongside the matrix.
+Protein sequences come from `foldrescue/assets/sequences.json` (6 KB, retrieved
+from the UniProt REST API and committed), so the cohort is reproducible with no
+network at all.
 
-### 2. All results are on SYNTHETIC data
+## The limitation that matters most
+
+**All results are on SYNTHETIC data, and Tier 2 is structurally capped by it.**
 
 `amenabench`, the curated benchmark this package is designed to consume,
-contains only a `LICENSE` file at the time of writing — there is no data in it.
-Every notebook therefore runs on `foldrescue.data.SyntheticCohortAdapter`.
+contains only a `LICENSE` file at the time of writing. Every notebook therefore
+runs on `foldrescue.data.SyntheticCohortAdapter`.
 
-Every artefact is labelled accordingly: figures carry a `SYNTHETIC` watermark,
-result CSVs are prefixed `DEMO_synthetic_`, and the holdout shortlist is
-**not** named after the gene it holds out, so the file cannot be mistaken for a
-prediction once separated from its notebook.
+That cohort's protein side is real — real UniProt sequences, real positions,
+real wild-type residues. But `ddg_pred`, `rsa`, `conservation` and the pocket
+geometry are drawn from distributions, not computed from structure. Since the
+generative pair term crosses compound descriptors against exactly those
+columns, and they correlate with sequence position at r ~ 0.02, **the
+variant-side signal is not recoverable from sequence by any encoder.** Tier 2
+therefore underperforms here for a reason that says nothing about
+representation fusion. Notebook 01 measures this rather than asserting it.
+
+Every artefact is labelled: figures carry a `SYNTHETIC` watermark, result CSVs
+are prefixed `DEMO_synthetic_`, and the holdout shortlist is **not** named after
+the gene it holds out.
 
 ## Reproducing
 
@@ -104,15 +111,13 @@ for nb in 01_train_all_tiers 02_calibration_study 03_glb1_prospective 04_ablatio
 done
 ```
 
-All randomness derives from explicit seeds (`SEEDS = [0, 1, 2, 3, 4]`), so a
-rerun on the same package versions reproduces the committed numbers exactly.
-Different LightGBM or scikit-learn versions may shift the low-order digits;
-the qualitative conclusions are stable across the seed range, which is what the
-error bars are reporting.
+All randomness derives from explicit seeds (`SEEDS = [0, 1, 2, 3, 4]`). The
+first run downloads the two checkpoints from Hugging Face; subsequent runs use
+the embedding cache.
 
 ## Verification at time of commit
 
 ```
-pytest -q        ->  157 passed, 0 skipped
+pytest -q        ->  164 passed, 0 skipped
 ruff check       ->  All checks passed
 ```

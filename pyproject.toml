@@ -64,6 +64,12 @@ foldrescue = "foldrescue.cli:main"
 [tool.setuptools]
 packages = ["foldrescue"]
 
+[tool.setuptools.package-data]
+# Real UniProt sequences for the demonstration gene panel (6 KB). Shipped
+# rather than fetched so the synthetic cohort is reproducible offline and
+# byte-identical across machines.
+foldrescue = ["assets/*.json"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 filterwarnings = [

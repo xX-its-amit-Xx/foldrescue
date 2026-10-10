@@ -288,6 +288,31 @@ _SCAFFOLD_SMILES: tuple[tuple[str, str, str], ...] = (
 # Placeholder gene panel. UniProt accessions are real so that anyone wiring a
 # real structure source in later finds the identifiers already correct; the
 # per-variant numbers attached to them are generated.
+SEQUENCE_ASSET = Path(__file__).resolve().parent / "assets" / "sequences.json"
+
+
+def load_sequences() -> dict[str, dict]:
+    """Real UniProt sequences for the demonstration gene panel.
+
+    Shipped in the repository (6 KB) rather than fetched at runtime, so the
+    synthetic cohort is reproducible with no network and byte-identical across
+    machines. Retrieved from the UniProt REST API; each entry records its
+    accession, length and description.
+
+    These sequences are REAL. The labels attached to variants in them are not.
+    That split is deliberate -- see ``SyntheticCohortAdapter``.
+    """
+    import json  # noqa: PLC0415
+
+    if not SEQUENCE_ASSET.exists():
+        raise FileNotFoundError(
+            f"missing sequence asset at {SEQUENCE_ASSET}. It ships with the "
+            f"package; reinstall, or regenerate it from UniProt using the "
+            f"accessions in foldrescue.data._GENE_PANEL."
+        )
+    return json.loads(SEQUENCE_ASSET.read_text())
+
+
 def _compound_descriptor_table(compounds: pd.DataFrame) -> pd.DataFrame:
     """Real RDKit descriptors per compound, used by the synthetic generator.
 
@@ -388,14 +413,32 @@ class SyntheticCohortAdapter:
     # -- generation pieces ------------------------------------------------
 
     def _make_variants(self, rng: np.random.Generator) -> pd.DataFrame:
+        sequences = load_sequences()
         rows = []
-        for gene, uniprot, length in _GENE_PANEL:
+        # Accession and length now come from the sequence asset, so the panel
+        # contributes only the gene list and its ordering.
+        for gene, _acc, _declared_length in _GENE_PANEL:
+            record = sequences[gene]
+            seq = record["sequence"]
+            length = len(seq)
             # Each gene gets a "pocket" at a fixed fraction of its length, so
             # dist_to_pocket is internally consistent per gene.
             pocket_centre = int(length * 0.42)
             for _ in range(self.n_variants_per_gene):
-                position = int(rng.integers(1, length + 1))
-                wt, mut = rng.choice(list(AMINO_ACIDS), size=2, replace=False)
+                # Sample a position in the REAL sequence and read the REAL
+                # wild-type residue there. Drawing wt_aa at random (as an
+                # earlier version did) makes the variant window fiction, and a
+                # protein language model embedding of fiction is a confident
+                # vector about nothing. Only the substituted residue and the
+                # label are synthetic.
+                for _attempt in range(10):
+                    position = int(rng.integers(1, length + 1))
+                    wt = seq[position - 1]
+                    if wt in AMINO_ACIDS:
+                        break
+                else:  # pragma: no cover - panel has no such stretch
+                    continue
+                mut = str(rng.choice([a for a in AMINO_ACIDS if a != wt]))
                 # Buried residues: low RSA, high depth, and (realistically) a
                 # larger destabilisation on mutation.
                 rsa = float(np.clip(rng.beta(1.6, 3.2), 0.0, 1.0))
@@ -409,7 +452,7 @@ class SyntheticCohortAdapter:
                 rows.append(
                     {
                         "gene": gene,
-                        "uniprot": uniprot,
+                        "uniprot": record["uniprot"],
                         "position": position,
                         "wt_aa": str(wt),
                         "mut_aa": str(mut),

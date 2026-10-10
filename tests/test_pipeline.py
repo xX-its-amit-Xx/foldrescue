@@ -447,7 +447,56 @@ def test_promiscuity_interrogation_beats_the_compound_baseline(trained, cohort):
     assert report.shuffled_score < report.model_score
     assert 0.0 < report.pair_specificity <= 1.5
     assert report.ground_truth_pair_share is not None
-    assert "PASSES" in report.verdict() or "MIXED" in report.verdict()
+    # Deliberately NOT asserted: which verdict band this particular draw lands
+    # in. That is a property of the sampled cohort, not of the code -- changing
+    # the generator moved seed 0 from "MIXED" to "MOSTLY PROMISCUITY" while
+    # every invariant above still held. The band->sentence mapping is tested
+    # directly in test_promiscuity_verdict_bands instead.
+    assert report.verdict()
+
+
+@pytest.mark.parametrize(
+    "pair_specificity,expected",
+    # Values sit clear of the 0.5 / 0.2 band edges on purpose: reconstructing
+    # shuffled_score from a target pair_specificity reintroduces float error,
+    # so an exact-boundary case tests rounding rather than the thresholds.
+    [(0.90, "PASSES"), (0.55, "PASSES"), (0.35, "MIXED"),
+     (0.25, "MIXED"), (0.10, "MOSTLY PROMISCUITY")],
+)
+def test_promiscuity_verdict_bands(pair_specificity, expected):
+    """The number -> sentence mapping, which IS code behaviour.
+
+    Constructed directly rather than sampled, so this tests the thresholds
+    instead of whichever band a given cohort happens to produce.
+    """
+    from foldrescue.attribution import PromiscuityReport
+
+    prevalence, model = 0.30, 0.50
+    lift = model - prevalence
+    report = PromiscuityReport(
+        metric="pr_auc",
+        model_score=model,
+        compound_baseline_score=0.35,
+        variant_baseline_score=0.32,
+        # invert pair_specificity = (model - shuffled) / lift
+        shuffled_score=model - pair_specificity * lift,
+        prevalence=prevalence,
+    )
+    assert report.pair_specificity == pytest.approx(pair_specificity, abs=1e-9)
+    assert expected in report.verdict()
+
+
+def test_promiscuity_verdict_fails_when_baseline_not_beaten():
+    """The one verdict that must never be softened."""
+    from foldrescue.attribution import PromiscuityReport
+
+    report = PromiscuityReport(
+        metric="pr_auc", model_score=0.34, compound_baseline_score=0.41,
+        variant_baseline_score=0.30, shuffled_score=0.33, prevalence=0.30,
+    )
+    assert not report.beats_compound_baseline
+    assert "FAILS" in report.verdict()
+    assert "should not be used to prioritise assays" in report.verdict()
 
 
 def test_promiscuity_verdict_fails_a_ligand_blind_model(cohort):

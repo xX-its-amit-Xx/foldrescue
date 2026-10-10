@@ -31,9 +31,17 @@ from __future__ import annotations
 from pathlib import Path
 
 import matplotlib
-import matplotlib.pyplot as plt
 
-matplotlib.use("Agg")
+# Select a headless backend ONLY outside a Jupyter kernel. Forcing "Agg"
+# unconditionally means plt.show() renders nothing under nbclient, so the
+# executed notebooks commit with text output and no figures -- which is how
+# this file shipped for one iteration.
+try:  # pragma: no cover - depends on execution context
+    get_ipython()  # type: ignore[name-defined]  # noqa: B018
+except NameError:
+    matplotlib.use("Agg")
+
+import matplotlib.pyplot as plt  # noqa: E402
 
 # Categorical slots, fixed order. Do not cycle; a fifth series folds into
 # "other" or becomes a small multiple.

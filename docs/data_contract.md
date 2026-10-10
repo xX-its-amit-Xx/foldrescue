@@ -47,6 +47,21 @@ supplied sequence disagrees with `wt_aa`, which catches many but not all cases.
 tools in this field use the opposite sign; converting wrong inverts the single
 most informative feature.
 
+**`pocket_vol_delta` should come from a repacking calculation** (Rosetta,
+FoldX) — the volume change after the side chain is repacked and the structure
+relaxed. `foldrescue.structure.pocket_volume_delta_on_mutation` will compute a
+geometric fallback from coordinates, but its sign does not reliably track
+side-chain size: alpha-sphere volume is band-limited, and an occluding side
+chain is itself pocket-lining surface, so deleting a large residue can *reduce*
+the detected pocket. That function warns at runtime every time it is called and
+documents the behaviour at length. Prefer a repacked value where you have one.
+
+The other two Tier 3 columns are well behaved and
+`foldrescue.structure` computes them properly from coordinates:
+`distance_to_pocket` (Cα to the centroid of a detected alpha-sphere pocket) and
+`residue_contacts_ligand` (any heavy-atom pair within 4.5 Å, optionally
+restricted to loop residues).
+
 ### `compounds.csv`
 
 | Column | Type | Meaning |

@@ -113,6 +113,6 @@ error bars are reporting.
 ## Verification at time of commit
 
 ```
-pytest -q        ->  120 passed, 0 skipped
+pytest -q        ->  157 passed, 0 skipped
 ruff check       ->  All checks passed
 ```

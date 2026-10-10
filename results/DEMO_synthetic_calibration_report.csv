@@ -1,0 +1,3 @@
+method,ECE_before,ECE_after,ECE_reduction,Brier_before,Brier_after,improved
+temperature,0.0642,0.0645,-0.0004,0.2018,0.202,False
+isotonic,0.0642,0.1006,-0.0364,0.2018,0.2127,False

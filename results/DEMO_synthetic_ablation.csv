@@ -1,0 +1,9 @@
+split,removed,pr_auc,delta_vs_full,pooled_sd,beyond_noise
+random,stability,0.4141,-0.0224,0.1307,False
+random,ligand,0.3162,-0.1203,0.0836,True
+random,structural,0.4183,-0.0182,0.1178,False
+random,interaction,0.4001,-0.0364,0.1078,False
+gene_holdout,stability,0.4122,-0.0143,0.0723,False
+gene_holdout,ligand,0.3005,-0.126,0.057,True
+gene_holdout,structural,0.4291,0.0026,0.0696,False
+gene_holdout,interaction,0.3979,-0.0286,0.055,False

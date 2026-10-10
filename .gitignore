@@ -1,0 +1,14 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.ipynb_checkpoints/
+
+# Embedding caches are large, machine-specific and fully reproducible from
+# source. The resumable checkpoint is a runtime artefact, not a deliverable.
+.foldrescue_cache/

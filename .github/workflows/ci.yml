@@ -1,0 +1,77 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: test (py${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install (without the Tier 2 extra)
+        # Tier 2 needs torch, which is a multi-GB download. The tier-2 tests
+        # skip themselves via importorskip, so CI stays fast and still covers
+        # tiers 1 and 3, calibration, the domain check and the CLI.
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+
+      - name: Lint
+        run: ruff check foldrescue tests
+
+      - name: Resource guard contract
+        # Run this first and alone: if the guard is broken, every other
+        # failure downstream is noise.
+        run: pytest tests/test_resource_guard.py -q
+
+      - name: Required behaviours (calibration, domain, guard)
+        run: |
+          pytest tests/test_calibration.py tests/test_domain.py -q
+
+      - name: Full suite
+        run: pytest -q --cov=foldrescue --cov-report=term-missing
+
+      - name: CLI smoke test
+        run: |
+          python -m foldrescue.cli --version
+          python -m foldrescue.cli resources --rows 1000 --cols 1000
+          python -m foldrescue.cli predict \
+            --gene GLB1 \
+            --variants examples/glb1_variants.csv \
+            --compounds examples/chaperones.smi \
+            --out /tmp/ranked.csv \
+            --no-shap
+          head -12 /tmp/ranked.csv
+
+      - name: Assert the CLI withheld out-of-domain pairs
+        # A regression here means the package silently ranked an
+        # extrapolation, which is the one failure mode it exists to prevent.
+        run: |
+          python - <<'PY'
+          import subprocess, sys
+          r = subprocess.run([sys.executable, "-m", "foldrescue.cli", "predict",
+              "--gene", "GLB1", "--variants", "examples/glb1_variants.csv",
+              "--compounds", "examples/chaperones.smi", "--out", "/tmp/r.csv",
+              "--no-shap"], capture_output=True, text=True)
+          assert r.returncode == 0, r.stderr
+          assert "WITHHELD" in r.stderr, "OOD pairs were not withheld:\n" + r.stderr
+          print("ok: out-of-domain pairs withheld as expected")
+          PY

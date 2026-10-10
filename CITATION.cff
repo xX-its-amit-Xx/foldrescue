@@ -1,0 +1,73 @@
+cff-version: 1.2.0
+title: "foldrescue: pair-level prediction of pharmacological chaperone rescue"
+message: >-
+  If you use this software, please cite it. Note that the shipped demonstration
+  results are produced on SYNTHETIC data and must not be cited as experimental
+  or benchmark findings.
+type: software
+authors:
+  - name: "foldrescue contributors"
+repository-code: "https://github.com/xX-its-amit-Xx/foldrescue"
+license: GPL-3.0-or-later
+version: 0.1.0.dev0
+date-released: "2026-10-10"
+keywords:
+  - pharmacological chaperone
+  - missense variant
+  - protein stability
+  - probability calibration
+  - applicability domain
+  - conformal prediction
+abstract: >-
+  foldrescue predicts whether a given pharmacological chaperone rescues a given
+  destabilising missense variant. Amenability is a property of a
+  (variant, compound) pair: stability predictors answer whether a variant
+  destabilises, and docking answers whether a ligand binds, but neither answers
+  whether that binding rescues trafficking. foldrescue models the pair jointly
+  across three model tiers (gradient-boosted trees over stability, structural
+  and ligand features; frozen protein/chemical language model embeddings fused
+  by cross-attention; and a structure-aware tier adding pocket-occupancy
+  features), and treats probability calibration and applicability-domain
+  reporting as primary outputs rather than diagnostics. Predictions outside the
+  training distribution are flagged and are not ranked alongside supported
+  predictions without an explicit opt-in. The package is intended for assay
+  prioritisation research only and is not clinical decision support.
+references:
+  - type: article
+    title: "On Calibration of Modern Neural Networks"
+    authors:
+      - family-names: Guo
+        given-names: Chuan
+      - family-names: Pleiss
+        given-names: Geoff
+      - family-names: Sun
+        given-names: Yu
+      - family-names: Weinberger
+        given-names: Kilian Q.
+    year: 2017
+    notes: "Temperature scaling, implemented in foldrescue.calibration."
+  - type: article
+    title: "Large-scale evolutionary modelling of protein sequences (ESM-2)"
+    authors:
+      - family-names: Lin
+        given-names: Zeming
+    year: 2023
+    notes: "Protein encoder used by the Tier 2 fusion model."
+  - type: article
+    title: "Extended-Connectivity Fingerprints"
+    authors:
+      - family-names: Rogers
+        given-names: David
+      - family-names: Hahn
+        given-names: Mathew
+    year: 2010
+    notes: "ECFP4 ligand featurisation."
+  - type: article
+    title: "Large-Scale Machine Learning-Based Probability Estimation (Venn-Abers)"
+    authors:
+      - family-names: Vovk
+        given-names: Vladimir
+      - family-names: Petej
+        given-names: Ivan
+    year: 2014
+    notes: "Probability intervals reported as ci_low/ci_high."

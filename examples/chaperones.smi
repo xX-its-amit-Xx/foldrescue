@@ -1,0 +1,5 @@
+OC[C@H]1NC[C@H](O)[C@@H](O)[C@@H]1O NOEV_like
+CCCCN1C[C@H](O)[C@@H](O)[C@H](O)[C@H]1CO NBDNJ_like
+O=C(Nc1ccc(F)cc1)c1ccc(O)cc1 ARYL_AMIDE_1
+C1CCCCC1NC(=O)N1CCN(c2ccccc2)CC1 UREA_OOD
+CC(C)(C)OC(=O)N1CCC(CC1)Nc1ncnc2[nH]ccc12 KINASE_OOD
